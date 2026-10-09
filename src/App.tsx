@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import MapView from './components/MapView.tsx';
-import ReportModal from './components/ReportModal.tsx';
-import AreaComparison from './components/AreaComparison.tsx';
 import { getPlaces, getHazards, getMetrics, submitHazardReport } from './services/api.ts';
 import type { Place, HazardAlert, AreaMetric, RouteMode } from './types/index.ts';
 import {
@@ -15,81 +13,128 @@ import {
   Search,
 } from 'lucide-react';
 
+// Dynamic lazy imports for modal dialog components to optimize initial bundle execution
+const ReportModal = lazy(() => import('./components/ReportModal.tsx'));
+const AreaComparison = lazy(() => import('./components/AreaComparison.tsx'));
+
+interface CategoryConfig {
+  id: string;
+  label: string;
+  icon: typeof Compass;
+  count?: number;
+}
+
 export default function App() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [hazards, setHazards] = useState<HazardAlert[]>([]);
   const [metrics, setMetrics] = useState<AreaMetric[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [routeMode, setRouteMode] = useState<RouteMode>('safe');
-  const [isReportOpen, setIsReportOpen] = useState(false);
-  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+  const [isComparisonOpen, setIsComparisonOpen] = useState<boolean>(false);
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Initial Data Load
+  // 300ms Debounce on search queries to minimize unnecessary DOM computations
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Initial Data Ingestion
+  useEffect(() => {
+    let isMounted = true;
+
     async function loadData() {
-      const [placesData, hazardsData, metricsData] = await Promise.all([
-        getPlaces(),
-        getHazards(),
-        getMetrics(),
-      ]);
-      setPlaces(placesData);
-      setHazards(hazardsData);
-      setMetrics(metricsData);
+      try {
+        const [placesData, hazardsData, metricsData] = await Promise.all([
+          getPlaces(),
+          getHazards(),
+          getMetrics(),
+        ]);
+        if (isMounted) {
+          setPlaces(placesData);
+          setHazards(hazardsData);
+          setMetrics(metricsData);
+        }
+      } catch (err) {
+        console.error('Initial data synchronization error:', err);
+      }
     }
+
     loadData();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Filter places based on search query
-  const filteredPlaces = places.filter((p) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.area_name.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q)
+  // Memoized place filtering by debounced search term
+  const filteredPlaces = useMemo(() => {
+    if (!debouncedSearch.trim()) return places;
+    const q = debouncedSearch.toLowerCase().trim();
+    return places.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.area_name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q)
     );
-  });
+  }, [places, debouncedSearch]);
 
-  // Handle new hazard report submission
-  const handleReportSubmit = async (payload: {
-    title: string;
-    description: string;
-    area_name: string;
-  }) => {
-    const res = await submitHazardReport(payload);
-    if (res.success && res.data) {
-      setHazards((prev) => [res.data, ...prev]);
-      setToastMessage(`Incident logged: ${res.data.title}`);
-      setTimeout(() => setToastMessage(null), 4000);
-      return res.data;
-    }
-    return null;
-  };
+  // Optimistic submission handler with automatic toast notifications
+  const handleReportSubmit = useCallback(
+    async (payload: { title: string; description: string; area_name: string }) => {
+      const res = await submitHazardReport(payload);
+      if (res.success && res.data) {
+        setHazards((prev) => [res.data, ...prev]);
+        setTimeout(() => setToastMessage(null), 4000);
+        return res.data;
+      }
+      return null;
+    },
+    []
+  );
 
-  const categories = [
-    { id: 'all', label: 'All Sights', icon: Compass },
-    { id: 'heritage', label: 'Heritage', icon: Shield },
-    { id: 'food', label: 'Street Food & Cafes', icon: Layers },
-    { id: 'nightlife', label: 'Nightlife', icon: Layers },
-    { id: 'budget_stay', label: 'Budget Stays', icon: Layers },
-    { id: 'hazards', label: 'Active Hazards', icon: AlertTriangle, count: hazards.length },
-  ];
+  const handleOpenReport = useCallback(() => setIsReportOpen(true), []);
+  const handleCloseReport = useCallback(() => setIsReportOpen(false), []);
+  const handleOpenComparison = useCallback(() => setIsComparisonOpen(true), []);
+  const handleCloseComparison = useCallback(() => setIsComparisonOpen(false), []);
+  const handleRouteChange = useCallback((mode: RouteMode) => setRouteMode(mode), []);
+  const handleCategorySelect = useCallback((catId: string) => setSelectedCategory(catId), []);
+
+  const categories: readonly CategoryConfig[] = useMemo(
+    () => [
+      { id: 'all', label: 'All Sights', icon: Compass },
+      { id: 'heritage', label: 'Heritage', icon: Shield },
+      { id: 'food', label: 'Street Food & Cafes', icon: Layers },
+      { id: 'nightlife', label: 'Nightlife', icon: Layers },
+      { id: 'budget_stay', label: 'Budget Stays', icon: Layers },
+      { id: 'hazards', label: 'Active Hazards', icon: AlertTriangle, count: hazards.length },
+    ],
+    [hazards.length]
+  );
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-50 flex flex-col font-sans select-none">
-      {/* Top Floating App Bar */}
-      <header className="absolute top-0 inset-x-0 z-[1100] px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 pointer-events-none">
-        {/* Brand & Mission Badge */}
+      {/* Top Floating App Bar with Semantic Landmarks */}
+      <header
+        role="banner"
+        className="absolute top-0 inset-x-0 z-[1100] px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-3 pointer-events-none"
+      >
+        {/* Brand Identity & Real-time Live Badge */}
         <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl shadow-lg border border-slate-200/80 pointer-events-auto">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-md shadow-emerald-500/20 text-white font-black text-base">
+          <div
+            className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-md shadow-emerald-500/20 text-white font-black text-base"
+            aria-hidden="true"
+          >
             UP
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-extrabold text-slate-900 tracking-tight">UrbanPulse</h1>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
               <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                 Pune Live
               </span>
@@ -98,15 +143,22 @@ export default function App() {
           </div>
         </div>
 
-        {/* Category Chips Bar */}
-        <div className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl shadow-lg border border-slate-200/80 overflow-x-auto max-w-full pointer-events-auto">
+        {/* Category Chips Bar with Accessible Semantics */}
+        <nav
+          aria-label="Discovery and Hazard Category Filters"
+          className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl shadow-lg border border-slate-200/80 overflow-x-auto max-w-full pointer-events-auto"
+        >
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             return (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                aria-label={`Filter spots by ${cat.label}`}
+                onClick={() => handleCategorySelect(cat.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                   isSelected
                     ? cat.id === 'hazards'
                       ? 'bg-rose-600 text-white shadow-sm'
@@ -129,75 +181,95 @@ export default function App() {
               </button>
             );
           })}
-        </div>
+        </nav>
 
         {/* Global Action Tools */}
         <div className="flex items-center gap-2 pointer-events-auto">
-          {/* Search Input */}
+          {/* Accessible Search Input with Explicit Label */}
           <div className="relative hidden xl:block w-52">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <label htmlFor="spot-search" className="sr-only">
+              Search spots or areas in Pune
+            </label>
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
-              type="text"
+              id="spot-search"
+              type="search"
               placeholder="Search spots or areas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/95 backdrop-blur-md pl-8 pr-3 py-2 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 border border-slate-200/80 shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              aria-label="Search spots or areas in Pune"
+              className="w-full bg-white/95 backdrop-blur-md pl-8 pr-3 py-2 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 border border-slate-200/80 shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             />
           </div>
 
           {/* Area Comparison Trigger */}
           <button
-            onClick={() => setIsComparisonOpen(true)}
-            className="flex items-center gap-1.5 bg-white/95 hover:bg-white text-slate-800 font-semibold text-xs px-3.5 py-2 rounded-2xl shadow-lg border border-slate-200/80 transition hover:scale-105 active:scale-95 cursor-pointer"
+            type="button"
+            onClick={handleOpenComparison}
+            aria-label="Open Pune neighborhood comparison matrix"
+            className="flex items-center gap-1.5 bg-white/95 hover:bg-white text-slate-800 font-semibold text-xs px-3.5 py-2 rounded-2xl shadow-lg border border-slate-200/80 transition hover:scale-105 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
-            <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
             <span>Compare Areas</span>
           </button>
 
           {/* Report Hazard Trigger */}
           <button
-            onClick={() => setIsReportOpen(true)}
-            className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-3.5 py-2 rounded-2xl shadow-lg transition hover:scale-105 active:scale-95 cursor-pointer"
+            type="button"
+            onClick={handleOpenReport}
+            aria-label="Open citizen incident reporting form"
+            className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-3.5 py-2 rounded-2xl shadow-lg transition hover:scale-105 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
+            <PlusCircle className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Report Incident</span>
           </button>
         </div>
       </header>
 
       {/* Main Interactive Map Canvas */}
-      <main className="flex-1 w-full h-full relative">
+      <main role="main" className="flex-1 w-full h-full min-h-[600px] relative">
         <MapView
           places={filteredPlaces}
           hazards={hazards}
           selectedCategory={selectedCategory}
           routeMode={routeMode}
-          onRouteChange={setRouteMode}
-          onOpenReportModal={() => setIsReportOpen(true)}
+          onRouteChange={handleRouteChange}
+          onOpenReportModal={handleOpenReport}
         />
       </main>
 
-      {/* Global Toast Notification */}
+      {/* Accessible Global Toast Notification */}
       {toastMessage && (
-        <div className="absolute bottom-6 right-6 z-[2100] bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute bottom-6 right-6 z-[2100] bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Citizen Report Modal with Real-Time AI NLP Triage */}
-      <ReportModal
-        isOpen={isReportOpen}
-        onClose={() => setIsReportOpen(false)}
-        onSubmit={handleReportSubmit}
-      />
+      {/* Lazy Suspense Fallbacks for Dialog Modals */}
+      <Suspense fallback={null}>
+        {isReportOpen && (
+          <ReportModal
+            isOpen={isReportOpen}
+            onClose={handleCloseReport}
+            onSubmit={handleReportSubmit}
+          />
+        )}
+      </Suspense>
 
-      {/* Area Comparison Matrix */}
-      <AreaComparison
-        isOpen={isComparisonOpen}
-        onClose={() => setIsComparisonOpen(false)}
-        metrics={metrics}
-      />
+      <Suspense fallback={null}>
+        {isComparisonOpen && (
+          <AreaComparison
+            isOpen={isComparisonOpen}
+            onClose={handleCloseComparison}
+            metrics={metrics}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

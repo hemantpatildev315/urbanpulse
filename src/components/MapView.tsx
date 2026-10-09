@@ -1,33 +1,44 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import type { Place, HazardAlert, RouteMode } from '../types/index.ts';
 import { ShieldCheck, AlertTriangle, Navigation, Zap, Eye, CheckCircle2 } from 'lucide-react';
 
 interface MapViewProps {
+  /** Array of curated discovery places */
   places: Place[];
+  /** Array of active civic hazard alerts */
   hazards: HazardAlert[];
+  /** Active category filter identifier */
   selectedCategory: string;
+  /** Active navigation route mode */
   routeMode: RouteMode;
+  /** Handler to switch between safe and standard routes */
   onRouteChange: (mode: RouteMode) => void;
+  /** Optional callback when a place marker is clicked */
   onSelectPlace?: (place: Place) => void;
+  /** Optional callback when a hazard pin is clicked */
   onSelectHazard?: (hazard: HazardAlert) => void;
+  /** Handler to open the citizen reporting dialog */
   onOpenReportModal: () => void;
 }
 
-// -------------------------------------------------------------
-// Route Coordinates across Pune (Shaniwar Wada to FC Road)
-// -------------------------------------------------------------
-// Standard Route: Passes through low-lying river causeway and dim alleys (touches active hazards)
-const STANDARD_ROUTE: [number, number][] = [
+/**
+ * Standard Route Coordinates: Shaniwar Wada to FC Road Hub
+ * Passes through low-lying Mutha causeway and unlit student connectors.
+ */
+const STANDARD_ROUTE: readonly [number, number][] = [
   [18.5196, 73.8553], // Shaniwar Wada
   [18.5140, 73.8500], // Congested Shivaji Road cross
-  [18.5135, 73.8432], // Mutha river causeway (active waterlog alert)
-  [18.5208, 73.8428], // FC Road unlit campus lane (dim light hazard)
+  [18.5135, 73.8432], // Mutha river causeway (waterlogging hazard)
+  [18.5208, 73.8428], // FC Road rear alleyway (dim light hazard)
   [18.5246, 73.8415], // FC Road Center
 ];
 
-// Verified Safe Route: Follows well-lit arterial JM Road & illuminated promenade
-const SAFE_ROUTE: [number, number][] = [
+/**
+ * Verified Safe Route Coordinates: Shaniwar Wada to FC Road Hub
+ * Skirts active hazards via illuminated 6-lane JM Road & Ghole Road Smart Corridor.
+ */
+const SAFE_ROUTE: readonly [number, number][] = [
   [18.5196, 73.8553], // Shaniwar Wada
   [18.5225, 73.8540], // Dengle Bridge
   [18.5280, 73.8490], // Sancheti / JM Road North (Illuminated 6-lane artery)
@@ -41,7 +52,7 @@ export default function MapView({
   selectedCategory,
   routeMode,
   onRouteChange,
-  onOpenReportModal
+  onOpenReportModal,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -49,7 +60,7 @@ export default function MapView({
   const hazardsLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Initialize Map
+  // Initialize Map Instance
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -65,7 +76,7 @@ export default function MapView({
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
-    // Zoom control at bottom right
+    // Zoom control with explicit accessibility positioning
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     placesLayerRef.current = L.layerGroup().addTo(map);
@@ -92,19 +103,20 @@ export default function MapView({
     };
   }, []);
 
-  // Update Places Markers
+  // Filtered places memoization for runtime performance
+  const filteredPlaces = useMemo(() => {
+    if (selectedCategory === 'hazards') return [];
+    if (selectedCategory === 'all') return places;
+    return places.filter(p => p.category.toLowerCase() === selectedCategory.toLowerCase());
+  }, [places, selectedCategory]);
+
+  // Update Places Markers Layer
   useEffect(() => {
     const layer = placesLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
 
-    if (selectedCategory === 'hazards') return;
-
-    const filtered = selectedCategory === 'all'
-      ? places
-      : places.filter(p => p.category.toLowerCase() === selectedCategory.toLowerCase());
-
-    filtered.forEach(place => {
+    filteredPlaces.forEach(place => {
       let pinColor = '#10b981'; // emerald for heritage/culture
       let iconSymbol = '🏛️';
 
@@ -136,7 +148,7 @@ export default function MapView({
             cursor: pointer;
             transition: transform 0.2s ease;
           ">
-            <span style="transform: rotate(45deg); font-size: 14px; user-select: none;">${iconSymbol}</span>
+            <span style="transform: rotate(45deg); font-size: 14px; user-select: none;" aria-hidden="true">${iconSymbol}</span>
           </div>
         `,
         iconSize: [34, 34],
@@ -144,7 +156,11 @@ export default function MapView({
         popupAnchor: [0, -32],
       });
 
-      const marker = L.marker([place.lat, place.lng], { icon: customIcon });
+      const marker = L.marker([place.lat, place.lng], {
+        icon: customIcon,
+        title: place.name,
+        alt: `${place.name} marker in ${place.area_name}`,
+      });
 
       const popupHtml = `
         <div style="font-family: inherit; width: 260px; padding: 14px 16px; background: #ffffff;">
@@ -181,9 +197,9 @@ export default function MapView({
       marker.bindPopup(popupHtml);
       layer.addLayer(marker);
     });
-  }, [places, selectedCategory]);
+  }, [filteredPlaces]);
 
-  // Update Hazard Markers
+  // Update Hazard Markers Layer
   useEffect(() => {
     const layer = hazardsLayerRef.current;
     if (!layer) return;
@@ -209,7 +225,7 @@ export default function MapView({
             cursor: pointer;
             box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
           ">
-            <span style="color: #ffffff; font-size: 14px; font-weight: 800;">!</span>
+            <span style="color: #ffffff; font-size: 14px; font-weight: 800;" aria-hidden="true">!</span>
           </div>
         `,
         iconSize: [32, 32],
@@ -217,7 +233,11 @@ export default function MapView({
         popupAnchor: [0, -18],
       });
 
-      const marker = L.marker([hazard.lat, hazard.lng], { icon: customIcon });
+      const marker = L.marker([hazard.lat, hazard.lng], {
+        icon: customIcon,
+        title: `${hazard.severity} hazard: ${hazard.title}`,
+        alt: `Hazard alert: ${hazard.title} in ${hazard.area_name}`,
+      });
 
       const severityBadgeBg = isCritical ? '#fef2f2' : '#fffbeb';
       const severityBadgeColor = isCritical ? '#b91c1c' : '#b45309';
@@ -254,7 +274,7 @@ export default function MapView({
     });
   }, [hazards]);
 
-  // Update Route Polylines
+  // Update Route Polylines Layer
   useEffect(() => {
     const layer = routeLayerRef.current;
     if (!layer) return;
@@ -262,7 +282,7 @@ export default function MapView({
 
     if (routeMode === 'safe') {
       // Solid Vibrant Emerald Safe Route
-      const safePolyline = L.polyline(SAFE_ROUTE, {
+      const safePolyline = L.polyline([...SAFE_ROUTE], {
         color: '#10b981',
         weight: 6,
         opacity: 0.95,
@@ -298,7 +318,7 @@ export default function MapView({
       layer.addLayer(endMarker);
     } else {
       // Dashed Amber/Crimson Standard Route
-      const standardPolyline = L.polyline(STANDARD_ROUTE, {
+      const standardPolyline = L.polyline([...STANDARD_ROUTE], {
         color: '#ef4444',
         weight: 5,
         dashArray: '8, 8',
@@ -334,25 +354,35 @@ export default function MapView({
     }
   }, [routeMode]);
 
-  // Corridor focus handler
-  const focusCorridor = (coords: [number, number], zoom = 14) => {
+  // Memoized corridor focus handler for rapid keyboard and touch navigation
+  const focusCorridor = useCallback((coords: [number, number], zoom = 14) => {
     mapInstanceRef.current?.flyTo(coords, zoom, { duration: 1.2 });
-  };
+  }, []);
 
   return (
-    <div className="relative w-full h-full min-h-[600px] overflow-hidden" style={{ minHeight: 'calc(100vh - 70px)' }}>
+    <div
+      role="region"
+      aria-label="Interactive city safety map"
+      className="relative w-full h-full min-h-[600px] overflow-hidden"
+      style={{ minHeight: 'calc(100vh - 70px)' }}
+    >
       {/* Leaflet Canvas Container */}
       <div
         ref={mapContainerRef}
         className="w-full h-full min-h-[600px] z-0"
         style={{ width: '100%', height: '100%', minHeight: 'calc(100vh - 70px)' }}
+        tabIndex={0}
+        aria-label="Pune Interactive Safety Map Canvas"
       />
 
       {/* Floating Smart Route Controller (Top Left) */}
-      <div className="absolute top-4 left-4 z-[1000] w-80 max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200/80 p-4 transition-all">
+      <aside
+        aria-label="Route Navigator Controls"
+        className="absolute top-4 left-4 z-[1000] w-80 max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200/80 p-4 transition-all"
+      >
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-emerald-600" />
+            <Navigation className="w-4 h-4 text-emerald-600" aria-hidden="true" />
             <h2 className="text-sm font-bold text-slate-800 tracking-tight">Smart Dual-Route Engine</h2>
           </div>
           <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200/60">
@@ -364,40 +394,54 @@ export default function MapView({
           Corridor: <span className="font-semibold text-slate-700">Shaniwar Wada</span> → <span className="font-semibold text-slate-700">FC Road</span>
         </p>
 
-        {/* Toggle Switch */}
-        <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-3">
+        {/* Accessible Toggle Switch */}
+        <div
+          role="radiogroup"
+          aria-label="Navigation Route Option"
+          className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-3"
+        >
           <button
             type="button"
+            role="radio"
+            aria-checked={routeMode === 'safe'}
+            aria-label="Switch to Safe and Well-Lit Route"
             onClick={() => onRouteChange('safe')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
               routeMode === 'safe'
                 ? 'bg-white text-emerald-700 shadow-sm border border-emerald-200/60'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
             Safe & Well-Lit
           </button>
           <button
             type="button"
+            role="radio"
+            aria-checked={routeMode === 'standard'}
+            aria-label="Switch to Standard Fastest Route"
             onClick={() => onRouteChange('standard')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${
               routeMode === 'standard'
                 ? 'bg-white text-rose-700 shadow-sm border border-rose-200/60'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Zap className="w-3.5 h-3.5 text-amber-500" />
+            <Zap className="w-3.5 h-3.5 text-amber-500" aria-hidden="true" />
             Standard / Fast
           </button>
         </div>
 
         {/* Dynamic Route Stats Card */}
         {routeMode === 'safe' ? (
-          <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-xl p-2.5 space-y-1.5 text-xs text-slate-700">
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-emerald-50/70 border border-emerald-200/60 rounded-xl p-2.5 space-y-1.5 text-xs text-slate-700"
+          >
             <div className="flex items-center justify-between font-semibold text-emerald-900">
               <span className="flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
                 Zero Active Hazards
               </span>
               <span>10 min • 3.2 km</span>
@@ -406,15 +450,19 @@ export default function MapView({
               Route follows well-patrolled, 6-lane JM Road & smart streetlights. Skirts waterlogged causeway and dim alleys.
             </p>
             <div className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 pt-1 border-t border-emerald-200/40">
-              <Eye className="w-3 h-3" />
+              <Eye className="w-3 h-3" aria-hidden="true" />
               <span>98% High-Luminance LED Coverage</span>
             </div>
           </div>
         ) : (
-          <div className="bg-rose-50/80 border border-rose-200/60 rounded-xl p-2.5 space-y-1.5 text-xs text-slate-700">
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-rose-50/80 border border-rose-200/60 rounded-xl p-2.5 space-y-1.5 text-xs text-slate-700"
+          >
             <div className="flex items-center justify-between font-semibold text-rose-900">
               <span className="flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" aria-hidden="true" />
                 2 Active Civic Hazards
               </span>
               <span>8 min • 2.8 km</span>
@@ -423,83 +471,100 @@ export default function MapView({
               Fastest path passes through Mutha River causeway drainage overflow & unlit campus connector.
             </p>
             <div className="flex items-center gap-1 text-[10px] font-medium text-rose-700 pt-1 border-t border-rose-200/40">
-              <AlertTriangle className="w-3 h-3" />
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
               <span>Dim Visibility & Waterlogging Risk</span>
             </div>
           </div>
         )}
-      </div>
+      </aside>
 
       {/* Floating Pune Neighborhood Quick-Jump Bar (Top Center) */}
-      <div className="hidden md:flex absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-white/95 backdrop-blur-md rounded-full shadow-lg border border-slate-200/80 px-2 py-1.5 items-center gap-1 text-xs">
+      <nav
+        aria-label="Corridor Quick Navigation"
+        className="hidden md:flex absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-white/95 backdrop-blur-md rounded-full shadow-lg border border-slate-200/80 px-2 py-1.5 items-center gap-1 text-xs"
+      >
         <span className="text-[11px] font-semibold text-slate-500 px-2">Jump to:</span>
         <button
+          type="button"
+          aria-label="Focus map view on FC Road"
           onClick={() => focusCorridor([18.5246, 73.8415], 15)}
-          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer"
+          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
           FC Road
         </button>
         <button
+          type="button"
+          aria-label="Focus map view on Shaniwar Wada"
           onClick={() => focusCorridor([18.5196, 73.8553], 15)}
-          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer"
+          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
           Shaniwar Wada
         </button>
         <button
+          type="button"
+          aria-label="Focus map view on Kalyani Nagar"
           onClick={() => focusCorridor([18.5482, 73.9025], 14)}
-          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer"
+          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
           Kalyani Nagar
         </button>
         <button
+          type="button"
+          aria-label="Focus map view on Viman Nagar"
           onClick={() => focusCorridor([18.5679, 73.9143], 14)}
-          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer"
+          className="px-2.5 py-1 rounded-full text-slate-700 hover:bg-slate-100 font-medium transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
           Viman Nagar
         </button>
         <button
+          type="button"
+          aria-label="Focus map view on Swargate Hazard Zone"
           onClick={() => focusCorridor([18.5018, 73.8587], 15)}
-          className="px-2.5 py-1 rounded-full text-rose-700 hover:bg-rose-50 font-medium transition cursor-pointer"
+          className="px-2.5 py-1 rounded-full text-rose-700 hover:bg-rose-50 font-medium transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
         >
           Swargate (Hazards)
         </button>
-      </div>
+      </nav>
 
       {/* Floating Action Trigger Button (Bottom Left) */}
       <div className="absolute bottom-5 left-4 z-[1000] flex items-center gap-2">
         <button
           type="button"
+          aria-label="Report a new civic hazard in Pune"
           onClick={onOpenReportModal}
-          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs md:text-sm px-4 py-2.5 rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs md:text-sm px-4 py-2.5 rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
-          <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+          <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" aria-hidden="true" />
           Report Civic Hazard
         </button>
       </div>
 
       {/* Map Legend (Bottom Center / Left) */}
-      <div className="hidden lg:flex absolute bottom-5 left-64 z-[999] bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-slate-200/80 px-3.5 py-2 items-center gap-4 text-[11px] text-slate-600">
+      <section
+        aria-label="Map Marker Color Legend"
+        className="hidden lg:flex absolute bottom-5 left-64 z-[999] bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-slate-200/80 px-3.5 py-2 items-center gap-4 text-[11px] text-slate-600"
+      >
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-emerald-500" />
+          <span className="w-3 h-3 rounded-full bg-emerald-500" aria-hidden="true" />
           <span>Heritage / Culture</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-orange-500" />
+          <span className="w-3 h-3 rounded-full bg-orange-500" aria-hidden="true" />
           <span>Food Spots</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-purple-500" />
+          <span className="w-3 h-3 rounded-full bg-purple-500" aria-hidden="true" />
           <span>Nightlife</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-sky-500" />
+          <span className="w-3 h-3 rounded-full bg-sky-500" aria-hidden="true" />
           <span>Budget Stays</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-rose-500" />
+          <span className="w-3 h-3 rounded-full bg-rose-500" aria-hidden="true" />
           <span>Active Hazard</span>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

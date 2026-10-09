@@ -328,13 +328,17 @@ export async function getPlaces(category?: string): Promise<Place[]> {
   return INITIAL_PLACES;
 }
 
+/**
+ * Retrieves active civic hazard alerts sorted by severity and recency.
+ * @returns Array of active HazardAlert objects
+ */
 export async function getHazards(): Promise<HazardAlert[]> {
   try {
     const res = await fetch('/api/hazards');
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        return json.data;
+        return json.data as HazardAlert[];
       }
     }
   } catch {
@@ -344,6 +348,11 @@ export async function getHazards(): Promise<HazardAlert[]> {
   return localHazards;
 }
 
+/**
+ * Submits a new citizen incident report and invokes NLP triage.
+ * @param payload - Incident report details including description and area name
+ * @returns Object with success status and newly created HazardAlert
+ */
 export async function submitHazardReport(payload: {
   title?: string;
   description: string;
@@ -362,7 +371,7 @@ export async function submitHazardReport(payload: {
       const json = await res.json();
       if (json.success && json.data) {
         localHazards = [json.data, ...localHazards];
-        return { success: true, data: json.data };
+        return { success: true, data: json.data as HazardAlert };
       }
     }
   } catch {
@@ -387,13 +396,17 @@ export async function submitHazardReport(payload: {
   return { success: true, data: newHazard };
 }
 
+/**
+ * Retrieves neighborhood safety and livability metrics for Pune localities.
+ * @returns Array of AreaMetric objects
+ */
 export async function getMetrics(): Promise<AreaMetric[]> {
   try {
     const res = await fetch('/api/metrics');
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        return json.data;
+        return json.data as AreaMetric[];
       }
     }
   } catch {

@@ -1,17 +1,32 @@
+/**
+ * UrbanPulse NLP Triage & Safety Scoring Engine
+ * Rule-based natural language classifier for real-time civic hazard intelligence.
+ * @module triageEngine
+ */
+
 export type HazardCategory = 'accident_zone' | 'poor_lighting' | 'waterlogging' | 'traffic';
 export type HazardSeverity = 'critical' | 'moderate' | 'low';
 
+/**
+ * Result structure produced by the citizen incident triage analysis.
+ */
 export interface TriageResult {
+  /** Assigned incident category based on keyword density */
   category: HazardCategory;
+  /** Severity tier used for prioritized routing and alerts */
   severity: HazardSeverity;
+  /** Safety index penalty impact (0 to 100 scale deduction) */
   impact: number;
+  /** Algorithmic confidence score (0.0 to 1.0) */
   confidence: number;
+  /** Contextual metadata tags for dispatch and filtering */
   tags: string[];
+  /** Recommended civic or traveler response advisory */
   recommendedAction: string;
 }
 
-// Keyword matrices for rule-based civic NLP classification
-const ACCIDENT_KEYWORDS = [
+// Immutable keyword matrices for rule-based civic NLP classification
+const ACCIDENT_KEYWORDS: readonly string[] = [
   'accident',
   'crash',
   'blind spot',
@@ -25,7 +40,7 @@ const ACCIDENT_KEYWORDS = [
   'head-on'
 ];
 
-const WATER_KEYWORDS = [
+const WATER_KEYWORDS: readonly string[] = [
   'waterlogging',
   'flood',
   'drain',
@@ -37,7 +52,7 @@ const WATER_KEYWORDS = [
   'puddle'
 ];
 
-const LIGHTING_KEYWORDS = [
+const LIGHTING_KEYWORDS: readonly string[] = [
   'dark',
   'pitch black',
   'no light',
@@ -50,7 +65,7 @@ const LIGHTING_KEYWORDS = [
   'zero visibility'
 ];
 
-const CRITICAL_TRAFFIC_KEYWORDS = [
+const CRITICAL_TRAFFIC_KEYWORDS: readonly string[] = [
   'complete gridlock',
   'standstill',
   'metro barricade block',
@@ -59,16 +74,30 @@ const CRITICAL_TRAFFIC_KEYWORDS = [
 ];
 
 /**
- * Analyzes citizen incident descriptions using keyword-based NLP triage
- * Returns category, severity, penalty impact, and contextual metadata.
+ * Analyzes citizen incident descriptions using keyword-based NLP triage.
+ * Evaluates semantic risk factors to determine category, severity, and localized impact.
+ *
+ * @param text - Plain-text incident report submitted by citizen
+ * @returns Comprehensive TriageResult with severity rating, impact score, and tags
  */
 export function analyzeIncidentReport(text: string): TriageResult {
-  const lower = text.toLowerCase();
+  const normalized = text.toLowerCase().trim();
 
-  const isAccident = ACCIDENT_KEYWORDS.some(w => lower.includes(w));
-  const isWater = WATER_KEYWORDS.some(w => lower.includes(w));
-  const isLighting = LIGHTING_KEYWORDS.some(w => lower.includes(w));
-  const isCriticalTraffic = CRITICAL_TRAFFIC_KEYWORDS.some(w => lower.includes(w));
+  if (!normalized) {
+    return {
+      category: 'traffic',
+      severity: 'low',
+      impact: 5,
+      confidence: 0.5,
+      tags: ['unclassified', 'awaiting-details'],
+      recommendedAction: 'Provide additional details for accurate dispatch and classification.'
+    };
+  }
+
+  const isAccident = ACCIDENT_KEYWORDS.some(keyword => normalized.includes(keyword));
+  const isWater = WATER_KEYWORDS.some(keyword => normalized.includes(keyword));
+  const isLighting = LIGHTING_KEYWORDS.some(keyword => normalized.includes(keyword));
+  const isCriticalTraffic = CRITICAL_TRAFFIC_KEYWORDS.some(keyword => normalized.includes(keyword));
 
   let category: HazardCategory = 'traffic';
   let severity: HazardSeverity = 'low';
@@ -120,12 +149,18 @@ export function analyzeIncidentReport(text: string): TriageResult {
 }
 
 /**
- * Calculates updated safety index bounded between 0 and 100
+ * Calculates updated safety index bounded between 0 and 100.
+ * Ensures boundary constraints are strictly enforced without underflow or overflow.
+ *
+ * @param baseScore - Pre-incident baseline score for neighborhood (0 - 100)
+ * @param impact - Penalty value determined by NLP triage (positive number)
+ * @returns Normalized safety index clamped to [0, 100]
  */
 export function calculateSafetyIndex(baseScore: number, impact: number): number {
   return Math.max(0, Math.min(100, baseScore - impact));
 }
 
-// User-facing alias
+/**
+ * User-facing alias for analyzeIncidentReport
+ */
 export const analyzeCitizenReport = analyzeIncidentReport;
-

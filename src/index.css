@@ -19,6 +19,34 @@ body,
   color: #0f172a; /* slate-900 */
 }
 
+/* Screen reader utility for WCAG 2.1 AA accessible name provision */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* WCAG 2.1 AA Accessible Focus-Visible Indicator Rings */
+:focus-visible {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 2px !important;
+}
+
 /* Explicit leaflet container dimensions */
 .leaflet-container {
   font-family: 'Inter', sans-serif !important;
