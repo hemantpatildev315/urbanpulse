@@ -73,7 +73,10 @@ VALUES
   ('plc_viman_nagar_social', 'Viman Nagar Youth & Cafe District', 'nightlife', 18.5679000, 73.9143000, 4.60, '₹300-700', 8.9, 8.9, 'Viman Nagar', 'Dynamic tech-and-campus neighborhood with Phoenix Marketcity, indie roasteries, and round-the-clock student dining.'),
   ('plc_aga_khan_palace', 'Aga Khan Palace Heritage Grounds', 'heritage', 18.5524000, 73.9015000, 4.80, '₹50-100', 9.5, 9.5, 'Kalyani Nagar', 'Majestic Italianate palace with tranquil lawns, profound historical memorials, and verified family-friendly security.'),
   ('plc_lal_mahal', 'Lal Mahal Historic Palace', 'heritage', 18.5182000, 73.8570000, 4.50, '₹20-50', 8.1, 8.5, 'Shaniwar Wada', 'Reconstructed historic red landmark dedicated to Chhatrapati Shivaji Maharaj and the historic core of Pune.'),
-  ('plc_deccan_gymkhana', 'Deccan Gymkhana Pavilion & Avenues', 'culture', 18.5150000, 73.8400000, 4.50, '₹100-300', 8.8, 9.2, 'Deccan', 'Heritage athletic and cultural epicenter featuring lush avenues, theater auditoriums, and heritage sweet shops.')
+  ('plc_deccan_gymkhana', 'Deccan Gymkhana Pavilion & Avenues', 'culture', 18.5150000, 73.8400000, 4.50, '₹100-300', 8.8, 9.2, 'Deccan', 'Heritage athletic and cultural epicenter featuring lush avenues, theater auditoriums, and heritage sweet shops.'),
+  ('plc_zostel_pune', 'Zostel Pune Community Hub', 'budget_stay', 18.5640000, 73.9110000, 4.70, '₹600-1200', 9.1, 9.4, 'Viman Nagar', 'Premier backpacker hostel with vibrant rooftop co-working cafe, 24/7 biometric security, and solo traveler safety protocols.'),
+  ('plc_deccan_hostel', 'Deccan Youth & Student Hostel', 'budget_stay', 18.5180000, 73.8390000, 4.50, '₹500-900', 8.7, 9.1, 'Deccan', 'Clean budget dormitory walking distance from FC Road with high-speed WiFi and safe verified access control.'),
+  ('plc_shivaji_stay', 'Shivajinagar Transit Pods & Stay', 'budget_stay', 18.5320000, 73.8490000, 4.60, '₹450-800', 8.9, 9.0, 'Shivajinagar', 'Modern compact sleeping pods near Shivajinagar Metro and railway hub, purpose-built for hackathon attendees and commuters.')
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   category = VALUES(category),
@@ -107,6 +110,7 @@ ON DUPLICATE KEY UPDATE
 -- Seed: area_metrics
 INSERT INTO area_metrics (area_name, safety_index, cleanliness_index, transit_score, walkability_score, night_safety)
 VALUES
+  ('Shivajinagar', 87.5, 83.0, 95.0, 88.5, 85.0),
   ('FC Road', 92.4, 81.5, 87.0, 94.2, 91.8),
   ('Kalyani Nagar', 91.0, 93.5, 82.0, 86.4, 89.5),
   ('Viman Nagar', 88.5, 89.0, 89.5, 88.0, 87.2),

@@ -1,51 +1,7 @@
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
+import type { Place, HazardAlert, AreaMetric } from '../types/index.ts';
 
-// Load environment variables for local/server execution
-dotenv.config();
-
-export interface Place {
-  id: string;
-  name: string;
-  category: 'heritage' | 'food' | 'nightlife' | 'culture' | string;
-  lat: number;
-  lng: number;
-  rating: number;
-  cost_range: string;
-  cleanliness_score: number;
-  safety_score: number;
-  area_name: string;
-  description: string;
-  created_at?: string;
-}
-
-export interface HazardAlert {
-  id: string;
-  category: 'traffic' | 'poor_lighting' | 'waterlogging' | 'accident_zone' | string;
-  severity: 'critical' | 'moderate' | 'low';
-  title: string;
-  description: string;
-  lat: number;
-  lng: number;
-  area_name: string;
-  upvotes: number;
-  reported_at?: string;
-}
-
-export interface AreaMetric {
-  area_name: string;
-  safety_index: number;
-  cleanliness_index: number;
-  transit_score: number;
-  walkability_score: number;
-  night_safety: number;
-  updated_at?: string;
-}
-
-// -------------------------------------------------------------
-// Resilient In-Memory Fallback Dataset (Pune Realistic Data)
-// -------------------------------------------------------------
-export const MOCK_PLACES: Place[] = [
+// Initial pre-seeded data for instant client-side rendering
+const INITIAL_PLACES: Place[] = [
   {
     id: 'plc_shaniwar_wada',
     name: 'Shaniwar Wada Heritage Fort',
@@ -202,7 +158,7 @@ export const MOCK_PLACES: Place[] = [
   }
 ];
 
-export const MOCK_HAZARDS: HazardAlert[] = [
+const INITIAL_HAZARDS: HazardAlert[] = [
   {
     id: 'hz_swargate_bottleneck',
     category: 'traffic',
@@ -265,7 +221,7 @@ export const MOCK_HAZARDS: HazardAlert[] = [
   }
 ];
 
-export const MOCK_AREA_METRICS: AreaMetric[] = [
+const INITIAL_METRICS: AreaMetric[] = [
   {
     area_name: 'Shivajinagar',
     safety_index: 87.5,
@@ -349,208 +305,100 @@ export const MOCK_AREA_METRICS: AreaMetric[] = [
   }
 ];
 
-// In-memory writable copy for live fallback demo
-const activeMockHazards: HazardAlert[] = [...MOCK_HAZARDS];
+// In-memory writable stores for client fallback
+let localHazards: HazardAlert[] = [...INITIAL_HAZARDS];
 
-// -------------------------------------------------------------
-// TiDB Cloud Serverless Connection Pool
-// -------------------------------------------------------------
-let pool: mysql.Pool | null = null;
-
-export function isDatabaseConfigured(): boolean {
-  const host = process.env.TIDB_HOST;
-  const user = process.env.TIDB_USER;
-  if (!host || !user) return false;
-  if (
-    user === 'your_tidb_username' ||
-    user.includes('your_') ||
-    host.includes('example.com') ||
-    process.env.NODE_ENV === 'test'
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export function getPool(): mysql.Pool | null {
-  if (!isDatabaseConfigured()) {
-    return null;
-  }
-
-  if (!pool) {
-    try {
-      pool = mysql.createPool({
-        host: process.env.TIDB_HOST,
-        port: Number(process.env.TIDB_PORT) || 4000,
-        user: process.env.TIDB_USER,
-        password: process.env.TIDB_PASSWORD || '',
-        connectTimeout: 4000,
-        database: process.env.TIDB_DATABASE || 'urbanpulse',
-        // CRITICAL: TiDB Cloud Serverless mandatory TLS/SSL configuration
-        ssl: {
-          minVersion: 'TLSv1.2',
-          rejectUnauthorized: true,
-        },
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0,
-        enableKeepAlive: true,
-        keepAliveInitialDelay: 0,
-      });
-      console.log('✓ TiDB Cloud connection pool initialized with TLSv1.2');
-    } catch (err) {
-      console.error('Failed to create TiDB connection pool, falling back to mock data:', err);
-      pool = null;
-    }
-  }
-
-  return pool;
-}
-
-// -------------------------------------------------------------
-// Resilient Database Access Methods with Fallback
-// -------------------------------------------------------------
-
-export async function queryDatabase<T = unknown>(
-  sql: string,
-  params: (string | number | boolean | null)[] = []
-): Promise<T | null> {
-  const dbPool = getPool();
-  if (!dbPool) return null;
-
+export async function getPlaces(category?: string): Promise<Place[]> {
   try {
-    const [rows] = await dbPool.execute(sql, params);
-    return rows as T;
-  } catch (error) {
-    console.warn('TiDB query error (falling back to in-memory store):', error);
-    return null;
+    const url = category && category !== 'all' ? `/api/places?category=${encodeURIComponent(category)}` : '/api/places';
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return json.data;
+      }
+    }
+  } catch {
+    // Silently fall back to in-memory dataset
   }
+
+  if (category && category !== 'all') {
+    return INITIAL_PLACES.filter(p => p.category.toLowerCase() === category.toLowerCase());
+  }
+  return INITIAL_PLACES;
 }
 
-export async function fetchPlaces(category?: string): Promise<Place[]> {
-  const normCategory = category ? category.toLowerCase().trim() : '';
-  const isAll = !normCategory || normCategory === 'all';
-
-  const sql = isAll
-    ? 'SELECT * FROM places ORDER BY rating DESC'
-    : 'SELECT * FROM places WHERE LOWER(category) = ? ORDER BY rating DESC';
-  const params = isAll ? [] : [normCategory];
-
-  const rows = await queryDatabase<Place[]>(sql, params);
-  if (rows && rows.length > 0) {
-    return rows.map((p) => ({
-      ...p,
-      lat: Number(p.lat),
-      lng: Number(p.lng),
-      rating: Number(p.rating),
-      cleanliness_score: Number(p.cleanliness_score),
-      safety_score: Number(p.safety_score),
-    }));
+export async function getHazards(): Promise<HazardAlert[]> {
+  try {
+    const res = await fetch('/api/hazards');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return json.data;
+      }
+    }
+  } catch {
+    // Silently fall back to in-memory dataset
   }
 
-  // Resilient fallback
-  if (!isAll) {
-    return MOCK_PLACES.filter(p => p.category.toLowerCase() === normCategory);
-  }
-  return MOCK_PLACES;
+  return localHazards;
 }
 
-export async function fetchHazards(): Promise<HazardAlert[]> {
-  const sql = `
-    SELECT * FROM hazard_alerts 
-    ORDER BY 
-      CASE LOWER(severity) 
-        WHEN 'critical' THEN 1 
-        WHEN 'moderate' THEN 2 
-        WHEN 'low' THEN 3 
-        ELSE 4 
-      END ASC, 
-      reported_at DESC
-  `;
+export async function submitHazardReport(payload: {
+  title?: string;
+  description: string;
+  area_name: string;
+  lat?: number;
+  lng?: number;
+}): Promise<{ success: boolean; data: HazardAlert; error?: string }> {
+  try {
+    const res = await fetch('/api/report-hazard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
-  const rows = await queryDatabase<HazardAlert[]>(sql);
-
-  if (rows && rows.length > 0) {
-    return rows.map((h) => ({
-      ...h,
-      lat: Number(h.lat),
-      lng: Number(h.lng),
-      upvotes: Number(h.upvotes),
-    }));
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        localHazards = [json.data, ...localHazards];
+        return { success: true, data: json.data };
+      }
+    }
+  } catch {
+    // Client-side fallback
   }
 
-  // In-memory sorting: severity first (critical > moderate > low), then recency descending
-  const severityWeight: Record<string, number> = { critical: 1, moderate: 2, low: 3 };
-  return [...activeMockHazards].sort((a, b) => {
-    const wA = severityWeight[a.severity.toLowerCase()] ?? 4;
-    const wB = severityWeight[b.severity.toLowerCase()] ?? 4;
-    if (wA !== wB) return wA - wB;
-    return new Date(b.reported_at || 0).getTime() - new Date(a.reported_at || 0).getTime();
-  });
-}
-
-export async function insertHazard(hazard: Omit<HazardAlert, 'id' | 'upvotes' | 'reported_at'>): Promise<HazardAlert> {
-  const newId = `hz_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-
+  // Create optimistic local hazard
   const newHazard: HazardAlert = {
-    id: newId,
-    category: hazard.category,
-    severity: hazard.severity,
-    title: hazard.title,
-    description: hazard.description,
-    lat: Number(hazard.lat),
-    lng: Number(hazard.lng),
-    area_name: hazard.area_name,
-    upvotes: 0,
-    reported_at: now,
+    id: `hz_local_${Date.now()}`,
+    category: 'traffic',
+    severity: 'moderate',
+    title: payload.title || `Incident Alert in ${payload.area_name}`,
+    description: payload.description,
+    area_name: payload.area_name,
+    lat: payload.lat || 18.5204,
+    lng: payload.lng || 73.8567,
+    upvotes: 1,
+    reported_at: 'Just now'
   };
 
-  const dbPool = getPool();
-  if (dbPool) {
-    try {
-      await dbPool.execute(
-        `INSERT INTO hazard_alerts (id, category, severity, title, description, lat, lng, area_name, upvotes, reported_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newHazard.id,
-          newHazard.category,
-          newHazard.severity,
-          newHazard.title,
-          newHazard.description,
-          newHazard.lat,
-          newHazard.lng,
-          newHazard.area_name,
-          newHazard.upvotes,
-          newHazard.reported_at ?? null,
-        ]
-      );
-      return newHazard;
-    } catch (err) {
-      console.warn('Failed to insert into TiDB, saved to memory fallback:', err);
-    }
-  }
-
-  // Fallback in-memory insert
-  activeMockHazards.unshift(newHazard);
-  return newHazard;
+  localHazards = [newHazard, ...localHazards];
+  return { success: true, data: newHazard };
 }
 
-export async function fetchAreaMetrics(): Promise<AreaMetric[]> {
-  const rows = await queryDatabase<AreaMetric[]>(
-    'SELECT * FROM area_metrics ORDER BY safety_index DESC'
-  );
-
-  if (rows && rows.length > 0) {
-    return rows.map((m) => ({
-      ...m,
-      safety_index: Number(m.safety_index),
-      cleanliness_index: Number(m.cleanliness_index),
-      transit_score: Number(m.transit_score),
-      walkability_score: Number(m.walkability_score),
-      night_safety: Number(m.night_safety),
-    }));
+export async function getMetrics(): Promise<AreaMetric[]> {
+  try {
+    const res = await fetch('/api/metrics');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return json.data;
+      }
+    }
+  } catch {
+    // Fallback
   }
 
-  return MOCK_AREA_METRICS;
+  return INITIAL_METRICS;
 }
