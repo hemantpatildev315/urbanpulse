@@ -59,10 +59,10 @@ export default function MapView({
       zoomControl: false,
     });
 
-    // Clean Apple-style map tiles (CartoDB Positron: light, crisp, uncluttered)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a>, OpenStreetMap',
+    // Free public OpenStreetMap tile layer (crisp, detailed, no watermark or API key)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
     // Zoom control at bottom right
